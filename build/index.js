@@ -353,6 +353,18 @@ async function make12306Request(url, scheme = new URLSearchParams(), headers = {
         return null;
     }
 }
+async function make12306PostRequest(url, data = {}, headers = {}) {
+    try {
+        const response = await axios.post(url.toString(), data, {
+            headers: headers,
+        });
+        return (await response.data);
+    }
+    catch (error) {
+        console.error('Error making 12306 POST request:', error);
+        return null;
+    }
+}
 // Create server instance
 const server = new McpServer({
     name: '12306-mcp',
@@ -531,6 +543,50 @@ server.tool('get-train-route-stations', '查询列车途径车站信息。', {
     const routeStationsInfo = parseRouteStationsInfo(routeStationsData);
     return {
         content: [{ type: 'text', text: JSON.stringify(routeStationsInfo) }],
+    };
+});
+server.tool('get-passengers-info', '获取用户账户中的所有乘客信息，用于选择购票乘客', {}, async () => {
+    const queryUrl = `${API_BASE}/otn/passengers/query`;
+    const cookies = await getCookie(API_BASE);
+    if (cookies == null) {
+        return {
+            content: [{ type: 'text', text: 'Error: 获取cookie失败，请检查网络连接' }],
+        };
+    }
+    const requestData = new URLSearchParams({
+        pageIndex: '1',
+        pageSize: '100'
+    });
+    const headers = {
+        Cookie: formatCookies(cookies),
+        'Content-Type': 'application/x-www-form-urlencoded'
+    };
+    const queryResponse = await make12306PostRequest(queryUrl, requestData, headers);
+    if (queryResponse === null || !queryResponse.status || queryResponse.httpstatus !== 200) {
+        return {
+            content: [{ type: 'text', text: '获取乘客信息失败，可能是未登录或会话已过期' }],
+        };
+    }
+    const passengers = queryResponse.data.datas;
+    if (!passengers || passengers.length === 0) {
+        return {
+            content: [{ type: 'text', text: '未找到乘客信息，可能是未登录或未添加乘客' }],
+        };
+    }
+    // 格式化乘客信息，只返回重要字段
+    const formattedPassengers = passengers.map(passenger => ({
+        passenger_name: passenger.passenger_name,
+        sex_name: passenger.sex_name,
+        born_date: passenger.born_date.split(' ')[0],
+        passenger_id_type_name: passenger.passenger_id_type_name,
+        passenger_id_no: passenger.passenger_id_no,
+        passenger_type_name: passenger.passenger_type_name,
+        mobile_no: passenger.mobile_no,
+        is_adult: passenger.isAdult === 'Y' ? '是' : '否',
+        all_enc_str: passenger.allEncStr // 保留这个字段用于后续可能的下单操作
+    }));
+    return {
+        content: [{ type: 'text', text: JSON.stringify(formattedPassengers, null, 2) }],
     };
 });
 async function getStations() {

@@ -415,6 +415,22 @@ async function make12306Request<T>(
   }
 }
 
+async function make12306PostRequest<T>(
+  url: string | URL,
+  data: Record<string, any> | URLSearchParams = {},
+  headers: Record<string, string> = {}
+): Promise<T | null> {
+  try {
+    const response = await axios.post(url.toString(), data, {
+      headers: headers,
+    });
+    return (await response.data) as T;
+  } catch (error) {
+    console.error('Error making 12306 POST request:', error);
+    return null;
+  }
+}
+
 // Create server instance
 const server = new McpServer({
   name: '12306-mcp',
@@ -429,12 +445,29 @@ const server = new McpServer({
 
 interface QueryResponse {
   [key: string]: any;
-  httpstatus: string;
+  httpstatus: number;
   data: {
     [key: string]: any;
   };
   messages: string;
   status: boolean;
+}
+
+// 定义乘客信息接口
+interface PassengerInfo {
+  passenger_name: string;          // 乘客姓名
+  sex_code: string;                // 性别代码
+  sex_name: string;                // 性别名称
+  born_date: string;               // 出生日期
+  passenger_id_type_code: string;  // 证件类型代码
+  passenger_id_type_name: string;  // 证件类型名称
+  passenger_id_no: string;         // 证件号码
+  passenger_type: string;          // 乘客类型代码
+  passenger_type_name: string;     // 乘客类型名称
+  mobile_no: string;               // 手机号码
+  allEncStr: string;               // 乘客信息加密字符串
+  isAdult: string;                 // 是否成人
+  [key: string]: any;              // 其他字段
 }
 
 server.resource('stations', 'data://all-stations', async (uri) => ({
@@ -659,6 +692,67 @@ server.tool(
     const routeStationsInfo = parseRouteStationsInfo(routeStationsData);
     return {
       content: [{ type: 'text', text: JSON.stringify(routeStationsInfo) }],
+    };
+  }
+);
+
+server.tool(
+  'get-passengers-info',
+  '获取用户账户中的所有乘客信息，用于选择购票乘客',
+  {},
+  async () => {
+    const queryUrl = `${API_BASE}/otn/passengers/query`;
+    const cookies = await getCookie(API_BASE);
+    if (cookies == null) {
+      return {
+        content: [{ type: 'text', text: 'Error: 获取cookie失败，请检查网络连接' }],
+      };
+    }
+
+    const requestData = new URLSearchParams({
+      pageIndex: '1',
+      pageSize: '100'
+    });
+
+    const headers = { 
+      Cookie: formatCookies(cookies),
+      'Content-Type': 'application/x-www-form-urlencoded'
+    };
+
+    const queryResponse = await make12306PostRequest<QueryResponse>(
+      queryUrl,
+      requestData,
+      headers
+    );
+
+    if (queryResponse === null || !queryResponse.status || queryResponse.httpstatus !== 200) {
+      return {
+        content: [{ type: 'text', text: '获取乘客信息失败，可能是未登录或会话已过期' }],
+      };
+    }
+
+    const passengers = queryResponse.data.datas as PassengerInfo[];
+    if (!passengers || passengers.length === 0) {
+      return {
+        content: [{ type: 'text', text: '未找到乘客信息，可能是未登录或未添加乘客' }],
+      };
+    }
+
+    // 格式化乘客信息，只返回重要字段
+    const formattedPassengers = passengers.map(passenger => ({
+      passenger_name: passenger.passenger_name,
+      sex_name: passenger.sex_name,
+      born_date: passenger.born_date.split(' ')[0],
+      passenger_id_type_name: passenger.passenger_id_type_name,
+      passenger_id_no: passenger.passenger_id_no,
+      passenger_type_name: passenger.passenger_type_name,
+      mobile_no: passenger.mobile_no,
+      is_adult: passenger.isAdult === 'Y' ? '是' : '否',
+      all_enc_str: passenger.allEncStr // 保留这个字段用于后续可能的下单操作
+    }));
+
+    return {
+      content: [{ type: 'text', text: JSON.stringify(formattedPassengers, null, 2) }],
     };
   }
 );

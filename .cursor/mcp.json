@@ -1,0 +1,10 @@
+{
+    "mcpServers": {
+        "12306-mcp": {
+            "command": "node",
+            "args": [
+                "D:\\创业\\AI编程\\12306-mcp\\build\\index.js"
+            ]
+        }
+    }
+}
