@@ -443,6 +443,46 @@ const server = new McpServer({
     'This server provides information about 12306.You can use this server to query train tickets on 12306.',
 });
 
+// 全局配置
+let USER_COOKIES: Record<string, string> | null = null;
+
+// 解析原始cookie字符串为对象
+function parseRawCookies(cookieStr: string): Record<string, string> {
+  const cookies: Record<string, string> = {};
+  
+  // 不进行URI解码，直接按分号分割
+  cookieStr.split(';').forEach(pair => {
+    const [key, ...values] = pair.trim().split('=');
+    // 使用...values.join('=')来处理值中可能包含=的情况
+    const value = values.join('=');
+    if (key && value) {
+      cookies[key.trim()] = value.trim();
+    }
+  });
+  console.error('Cookie解析结果:', cookies);
+  return cookies;
+}
+
+// 初始化时获取配置
+async function init() {
+  // 从环境变量获取cookie
+  const cookieStr = "JSESSIONID=71046CE76608BA5D061F0B293F6C5E49; tk=587xcaYBY3JRfTrfZIPmHZn3Bx7CHSo1UylikwhSnDgbcc1c0; route=6f50b51faa11b987e576cdb301e545c4; BIGipServerotn=1507393802.64545.0000; BIGipServerpassport=770179338.50215.0000; guidesStatus=off; highContrastMode=defaltMode; cursorStatus=off; _jc_save_fromStation=%u6DF1%u5733%u5317%2CIOQ; _jc_save_toStation=%u5E7F%u5DDE%2CGZQ; _jc_save_toDate=2025-05-16; _jc_save_wfdc_flag=dc; _jc_save_fromDate=2025-05-29; _jc_save_showIns=true; uKey=fc4b8b00f1ee0e2eca378f9c96a989431a0a05377d177818912162123e879d83";
+  console.warn(cookieStr);
+  if (cookieStr) {
+    try {
+      USER_COOKIES = parseRawCookies(cookieStr);
+      console.error('已从环境变量加载12306 Cookie');
+    } catch (error) {
+      console.error('解析Cookie字符串失败:', error);
+    }
+  }
+  
+  if (!USER_COOKIES) {
+    console.error('未找到有效的12306 Cookie，请设置环境变量COOKIE_12306');
+    console.error('设置方法: export COOKIE_12306="你的cookie字符串"');
+  }
+}
+
 interface QueryResponse {
   [key: string]: any;
   httpstatus: number;
@@ -702,10 +742,10 @@ server.tool(
   {},
   async () => {
     const queryUrl = `${API_BASE}/otn/passengers/query`;
-    const cookies = await getCookie(API_BASE);
-    if (cookies == null) {
+    
+    if (!USER_COOKIES) {
       return {
-        content: [{ type: 'text', text: 'Error: 获取cookie失败，请检查网络连接' }],
+        content: [{ type: 'text', text: '请先设置环境变量COOKIE_12306，包含有效的12306登录Cookie' }],
       };
     }
 
@@ -715,7 +755,7 @@ server.tool(
     });
 
     const headers = { 
-      Cookie: formatCookies(cookies),
+      Cookie: formatCookies(USER_COOKIES),
       'Content-Type': 'application/x-www-form-urlencoded'
     };
 
@@ -726,8 +766,9 @@ server.tool(
     );
 
     if (queryResponse === null || !queryResponse.status || queryResponse.httpstatus !== 200) {
+      queryResponse?.messages
       return {
-        content: [{ type: 'text', text: '获取乘客信息失败，可能是未登录或会话已过期' }],
+        content: [{ type: 'text', text: '获取乘客信息失败，可能是未登录或会话已过期' + queryResponse?.messages }],
       };
     }
 
@@ -783,8 +824,6 @@ async function getStations(): Promise<Record<string, StationData>> {
   }
   return stationsData;
 }
-
-async function init() {}
 
 async function main() {
   const transport = new StdioServerTransport();

@@ -4,7 +4,10 @@
             "command": "node",
             "args": [
                 "D:\\创业\\AI编程\\12306-mcp\\build\\index.js"
-            ]
+            ],
+            "env": {
+                "COOKIE_12306": "JSESSIONID=71046CE76608BA5D061F0B293F6C5E49; tk=587xcaYBY3JRfTrfZIPmHZn3Bx7CHSo1UylikwhSnDgbcc1c0; route=6f50b51faa11b987e576cdb301e545c4; BIGipServerotn=1507393802.64545.0000; BIGipServerpassport=770179338.50215.0000; guidesStatus=off; highContrastMode=defaltMode; cursorStatus=off; _jc_save_fromStation=%u6DF1%u5733%u5317%2CIOQ; _jc_save_toStation=%u5E7F%u5DDE%2CGZQ; _jc_save_toDate=2025-05-16; _jc_save_wfdc_flag=dc; _jc_save_fromDate=2025-05-29; _jc_save_showIns=true; uKey=fc4b8b00f1ee0e2eca378f9c96a989431a0a05377d177818912162123e879d83"
+            }
         }
     }
 }
