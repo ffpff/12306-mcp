@@ -131,6 +131,7 @@ export type TicketInfo = {
   to_station_telecode: string;
   prices: Price[];
   dw_flag: string[];
+  secretStr: string;
 };
 
 export type StationData = {

@@ -1,5 +1,5 @@
 import { API_BASE, SEAT_TYPE_CODES } from './constants.js';
-import { make12306PostRequest } from './utils.js';
+import { make12306PostRequest, logDebug } from './utils.js';
 import { formatCookies } from './utils.js';
 import { PassengerInfo, generatePassengerTicketStr, generateOldPassengerStr } from './passengers.js';
 
@@ -57,8 +57,20 @@ export async function submitOrderRequest(
   purposeCodes: string = 'ADULT'
 ): Promise<boolean> {
   const submitUrl = `${API_BASE}/otn/leftTicket/submitOrderRequest`;
+  
+  // 添加更详细的secretStr处理日志
+  logDebug(`原始secretStr: ${secretStr}`);
+  let decodedSecretStr;
+  try {
+    decodedSecretStr = decodeURIComponent(secretStr);
+    logDebug(`解码后secretStr: ${decodedSecretStr.substring(0, 20)}...`);
+  } catch (error) {
+    logDebug(`解码secretStr出错: ${error instanceof Error ? error.message : String(error)}`);
+    decodedSecretStr = secretStr; // 如果解码失败，使用原始值
+  }
+  
   const submitData = new URLSearchParams({
-    secretStr: decodeURIComponent(secretStr),
+    secretStr: decodedSecretStr,
     train_date: trainDate,
     back_train_date: trainDate,
     tour_flag: 'dc',
@@ -68,19 +80,31 @@ export async function submitOrderRequest(
     undefined: ''
   });
 
+  logDebug(`提交订单请求参数: trainDate=${trainDate}, fromStation=${fromStationName}, toStation=${toStationName}`);
+  
   const headers = {
     Cookie: formatCookies(userCookies),
     'Content-Type': 'application/x-www-form-urlencoded'
   };
 
+  logDebug(`发送提交订单请求: ${submitUrl}`);
   const submitResponse = await make12306PostRequest<any>(
     submitUrl,
     submitData,
     headers
   );
 
-  if (!submitResponse || !submitResponse.status || submitResponse.httpstatus !== 200) {
-    throw new Error(`提交订单请求失败: ${submitResponse?.messages || '未知错误'}`);
+  if (!submitResponse) {
+    logDebug('提交订单请求失败: 无响应');
+    throw new Error('提交订单请求失败: 无响应');
+  }
+  
+  logDebug(`提交订单请求响应: status=${submitResponse.status}, httpstatus=${submitResponse.httpstatus}`);
+  logDebug(`提交订单请求响应数据: ${JSON.stringify(submitResponse).substring(0, 300)}...`);
+  
+  if (!submitResponse.status || submitResponse.httpstatus !== 200) {
+    logDebug(`提交订单请求失败: ${submitResponse.messages || '未知错误'}`);
+    throw new Error(`提交订单请求失败: ${submitResponse.messages || '未知错误'}`);
   }
 
   return true;
@@ -391,14 +415,22 @@ export async function oneClickOrder(
   passenger: PassengerInfo,
   purposeCodes: string = 'ADULT'
 ): Promise<OrderResult> {
+  logDebug('开始一键下单流程');
+  logDebug(`下单参数: 车次密钥=${secretStr.substring(0, 10)}..., 日期=${trainDate}, 出发站=${fromStationName}, 到达站=${toStationName}, 座位类型=${seatType}`);
+  logDebug(`乘客信息: 姓名=${passenger.passenger_name}, 类型=${passenger.passenger_type_name}, 证件类型=${passenger.passenger_id_type_name}`);
+  
   try {
     // 将中文座位类型转换为编码
     let seatTypeCode = seatType;
     if (seatType in SEAT_TYPE_CODES) {
       seatTypeCode = SEAT_TYPE_CODES[seatType];
+      logDebug(`座位类型转换: ${seatType} -> ${seatTypeCode}`);
+    } else {
+      process.stderr.write(`[WARN] 未找到座位类型编码，使用原始值: ${seatType}\n`);
     }
     
     // 1. 提交订单请求
+    logDebug('步骤1: 开始提交订单请求');
     await submitOrderRequest(
       userCookies,
       secretStr,
@@ -407,55 +439,78 @@ export async function oneClickOrder(
       toStationName,
       purposeCodes
     );
+    logDebug('步骤1: 提交订单请求成功');
     
     // 2. 初始化订单上下文
+    logDebug('步骤2: 开始初始化订单上下文');
     const orderContext = await initOrderContext(userCookies);
+    logDebug(`步骤2: 初始化订单上下文成功，repeatSubmitToken=${orderContext.repeatSubmitToken.substring(0, 10)}...`);
+    logDebug(`订单上下文信息: ${JSON.stringify({
+      leftTicketStr: orderContext.ticketInfoForPassengerForm.leftTicketStr.substring(0, 10) + '...',
+      purpose_codes: orderContext.ticketInfoForPassengerForm.purpose_codes,
+      train_location: orderContext.ticketInfoForPassengerForm.train_location,
+      train_no: orderContext.ticketInfoForPassengerForm.queryLeftTicketRequestDTO.train_no,
+      station_train_code: orderContext.ticketInfoForPassengerForm.queryLeftTicketRequestDTO.station_train_code,
+      key_check_isChange: orderContext.ticketInfoForPassengerForm.key_check_isChange
+    }, null, 2)}`);
     
     // 3. 生成乘客票据字符串
+    logDebug('步骤3: 生成乘客票据字符串');
     const passengerTicketStr = generatePassengerTicketStr(passenger, seatTypeCode);
     const oldPassengerStr = generateOldPassengerStr(passenger);
+    logDebug(`生成的乘客票据: passengerTicketStr=${passengerTicketStr}, oldPassengerStr=${oldPassengerStr}`);
     
     // 4. 核对订单信息
+    logDebug('步骤4: 开始核对订单信息');
     await checkOrderInfo(
       userCookies,
       passengerTicketStr,
       oldPassengerStr,
       orderContext.repeatSubmitToken
     );
+    logDebug('步骤4: 核对订单信息成功');
     
     // 5. 检查队列人数和余票数
+    logDebug('步骤5: 开始检查队列人数和余票数');
     await getQueueCount(
       userCookies,
       orderContext,
       seatTypeCode
     );
+    logDebug('步骤5: 检查队列人数和余票数成功');
     
     // 6. 确认提交订单
+    logDebug('步骤6: 开始确认提交订单');
     await confirmSingleForQueue(
       userCookies,
       orderContext,
       passengerTicketStr,
       oldPassengerStr
     );
+    logDebug('步骤6: 确认提交订单成功');
     
     // 7. 查询订单等待状态并获取订单号
+    logDebug('步骤7: 开始查询订单等待状态');
     const orderId = await queryOrderStatus(userCookies, orderContext.repeatSubmitToken);
-    
     if (!orderId) {
+      process.stderr.write('[WARN] 步骤7: 未能获取到订单号\n');
       return {
         status: false,
         message: '未能获取到订单号，请到12306官网的"未完成订单"中查看'
       };
     }
+    logDebug(`步骤7: 获取到订单号: ${orderId}`);
     
     // 8. 验证订单是否成功
+    logDebug('步骤8: 开始验证订单是否成功');
     const finalStatus = await validateOrder(
       userCookies, 
       orderId, 
       orderContext.repeatSubmitToken
     );
+    logDebug(`步骤8: 验证订单完成，状态: ${finalStatus ? '成功' : '失败'}`);
     
-    return {
+    const result = {
       status: finalStatus,
       message: finalStatus ? 
         `订单提交成功! 订单号: ${orderId}，请前往12306官网支付` : 
@@ -475,7 +530,12 @@ export async function oneClickOrder(
         seatType: seatType
       }
     };
+    
+    logDebug(`一键下单完成: ${JSON.stringify(result, null, 2)}`);
+    return result;
   } catch (error) {
+    process.stderr.write(`[ERROR] 一键下单流程出错: ${(error as Error).message}\n`);
+    process.stderr.write(`[ERROR] 错误堆栈: ${(error as Error).stack}\n`);
     return {
       status: false,
       message: `订单提交失败: ${(error as Error).message}`

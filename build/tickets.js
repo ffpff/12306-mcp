@@ -35,6 +35,7 @@ export function parseTicketsInfo(ticketsData, stations) {
             to_station_telecode: ticket.to_station_telecode,
             prices: prices,
             dw_flag: dw_flag,
+            secretStr: ticket.secret_Sstr
         });
     }
     return result;
@@ -53,6 +54,7 @@ export function formatTicketsInfo(ticketsInfo) {
         ticketInfo.prices.forEach((price) => {
             infoStr += `\n- ${price.seat_name}: ${price.num.match(/^\d+$/) ? price.num + '张' : price.num}剩余 ${price.price}元`;
         });
+        infoStr += `\n- SecretStr: ${ticketInfo.secretStr}`;
         result += `${infoStr}\n`;
     });
     return result;
